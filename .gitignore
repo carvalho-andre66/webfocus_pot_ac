@@ -1,0 +1,22 @@
+.env
+.env.local
+
+# Client source exports (never commit)
+66d_diy_price_overrides_files/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Tooling caches and local env
+.pytest_cache/
+.ruff_cache/
+.venv/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

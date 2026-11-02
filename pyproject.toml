@@ -1,0 +1,51 @@
+[project]
+name = "paradigm-webfocus-looker"
+version = "0.1.0"
+description = "Migrate WebFOCUS estates to Looker."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+# Agents are run as scripts (paths like 0_extraction/main.py), not installed as packages.
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = [
+    ".",
+    "0_extraction",
+    "1_rationalization",
+    "2_assessment",
+    "3_configuration",
+    "4_transpilation",
+    "5_content_generation",
+    "6_validation",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "0_extraction/tests",
+    "1_rationalization/tests",
+    "2_assessment/tests",
+    "3_configuration/tests",
+    "4_transpilation/tests",
+    "5_content_generation/tests",
+    "6_validation/tests",
+]
+pythonpath = ["."]
+addopts = ["-m", "not integration"]
+markers = [
+    "integration: hits MariaDB, WebFOCUS, Looker, or BigQuery; excluded by default",
+]
