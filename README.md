@@ -7,10 +7,10 @@ Paradigm migration tool: WebFOCUS to Looker (BigQuery). CLI-first pipeline of nu
 | # | Path | Role |
 |---|------|------|
 | 0 | `0_extraction/` | Pull WebFOCUS content (file exports and REST) into staging |
-| 1 | `1_rationalization/` | Retire / exclude / consolidate / rebuild / migrate |
+| 1 | `1_rationalization/pot/` | Catalog the business logic worth carrying into LookML |
 | 2 | `2_assessment/` | Complexity scoring and effort estimates |
 | 3 | `3_configuration/` | Looker connections, users, groups, roles |
-| 4 | `4_transpilation/` | WebFOCUS logic to LookML |
+| 4 | `4_transpilation/pot/` | WebFOCUS report logic to a LookML project, with a gap readout |
 | 5 | `5_content_generation/` | Reports to Looks and dashboards |
 | 6 | `6_validation/` | Parity and LookML integrity checks |
 
