@@ -1,9 +1,9 @@
-"""Rationalization phase_1_retire entrypoint (stub)."""
+"""phase_1_retire. The POT run is '1_rationalization/pot/main.py'."""
 
 
 def main() -> None:
-    """Run Rationalization phase_1_retire. Not yet implemented."""
-    raise NotImplementedError
+    """The POT catalog runs all phases together from 'pot/main.py'."""
+    raise SystemExit("Run: uv run python 1_rationalization/pot/main.py --run-id RUN_ID")
 
 
 if __name__ == "__main__":

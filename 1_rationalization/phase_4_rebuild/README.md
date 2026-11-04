@@ -1,3 +1,3 @@
 # phase_4_rebuild
 
-Placeholder.
+POT behavior: build the structural catalog (graph role, logic class, lineage, gaps). Implementation lives in `../pot`.

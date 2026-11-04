@@ -1,9 +1,9 @@
-"""Rationalization phase_0_requirements entrypoint (stub)."""
+"""phase_0_requirements. The POT run is '1_rationalization/pot/main.py'."""
 
 
 def main() -> None:
-    """Run Rationalization phase_0_requirements. Not yet implemented."""
-    raise NotImplementedError
+    """The POT catalog runs all phases together from 'pot/main.py'."""
+    raise SystemExit("Run: uv run python 1_rationalization/pot/main.py --run-id RUN_ID")
 
 
 if __name__ == "__main__":

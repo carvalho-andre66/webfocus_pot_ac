@@ -1,3 +1,3 @@
 # phase_0_requirements
 
-Placeholder.
+POT behavior: every procedure file in the extraction run is in scope. Implementation lives in `../pot`.

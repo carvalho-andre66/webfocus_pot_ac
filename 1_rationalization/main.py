@@ -1,10 +1,13 @@
-"""Rationalization agent entrypoint (stub)."""
+"""Rationalization agent entrypoint. Delegates to the POT implementation in 'pot/'."""
 
+from __future__ import annotations
 
-def main() -> None:
-    """Run Rationalization agent. Not yet implemented."""
-    raise NotImplementedError
+import sys
+from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "pot"))
+
+from webfocus_rationalization.cli import main  # noqa: E402
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
