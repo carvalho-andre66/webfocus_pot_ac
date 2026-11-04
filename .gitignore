@@ -1,8 +1,10 @@
 .env
 .env.local
 
-# Client source exports (never commit)
+# Client source exports and engagement documents (never commit)
 66d_diy_price_overrides_files/
+66d_diy_price_overrides_latest/
+context/
 
 # Python
 __pycache__/
@@ -15,6 +17,10 @@ build/
 .pytest_cache/
 .ruff_cache/
 .venv/
+
+# Generated rationalization readout and transpilation LookML
+1_rationalization/pot/output/
+4_transpilation/pot/output/
 
 # OS / editor
 .DS_Store

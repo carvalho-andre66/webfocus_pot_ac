@@ -1,14 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.24.0"]
+build-backend = "hatchling.build"
+
 [project]
 name = "paradigm-webfocus-looker"
 version = "0.1.0"
 description = "Migrate WebFOCUS estates to Looker."
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "lark>=1.3.1",
+    "lkml>=1.3.7",
+    "mariadb>=1.1.14",
+    "python-dotenv>=1.0",
+    "sqlglot>=30.29.0",
+]
 
-# Agents are run as scripts (paths like 0_extraction/main.py), not installed as packages.
-[tool.uv]
-package = false
+# Agents are run as scripts (paths like 0_extraction/main.py); only lib is an importable package.
+[tool.hatch.build.targets.wheel]
+packages = ["lib"]
+
+[tool.hatch.build]
+exclude = ["**/tests/**"]
 
 [dependency-groups]
 dev = [
@@ -21,6 +34,7 @@ target-version = "py313"
 line-length = 100
 src = [
     ".",
+    "lib",
     "0_extraction",
     "1_rationalization",
     "2_assessment",
@@ -34,18 +48,24 @@ src = [
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["lib", "webfocus_extraction", "webfocus_rationalization", "webfocus_transpilation"]
+
 [tool.pytest.ini_options]
 testpaths = [
+    "lib/tests",
     "0_extraction/tests",
     "1_rationalization/tests",
+    "1_rationalization/pot/tests",
     "2_assessment/tests",
     "3_configuration/tests",
     "4_transpilation/tests",
+    "4_transpilation/pot/tests",
     "5_content_generation/tests",
     "6_validation/tests",
 ]
-pythonpath = ["."]
+pythonpath = [".", "0_extraction"]
 addopts = ["-m", "not integration"]
 markers = [
-    "integration: hits MariaDB, WebFOCUS, Looker, or BigQuery; excluded by default",
+    "integration: hits MariaDB, WebFOCUS, Looker, BigQuery, or the local client bundle; excluded by default",
 ]
