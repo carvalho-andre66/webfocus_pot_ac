@@ -5,6 +5,7 @@ from __future__ import annotations
 from lib.connectors.mariadb_connector import MariaDBClient
 from webfocus_transpilation.models import (
     Assignment,
+    Branch,
     Field,
     Filter,
     Join,
@@ -14,6 +15,7 @@ from webfocus_transpilation.models import (
     Setting,
     Snapshot,
     SourceFile,
+    StatementRow,
 )
 
 
@@ -43,6 +45,8 @@ def load_snapshot(db: MariaDBClient, run_id: str) -> Snapshot:
         settings=_settings(db, run_id),
         links=_links(db, run_id),
         master_fields=_master_fields(db, run_id),
+        statements=_statements(db, run_id),
+        branches=_branches(db, run_id),
     )
 
 
@@ -155,6 +159,28 @@ def _settings(db: MariaDBClient, run_id: str) -> tuple[Setting, ...]:
     )
     return tuple(
         Setting(int(row[0]), int(row[1]), (row[2] or "").upper(), row[3]) for row in rows
+    )
+
+
+def _statements(db: MariaDBClient, run_id: str) -> tuple[StatementRow, ...]:
+    """Every statement, for the control-flow graph: fallthrough needs the full file order."""
+    rows = db.fetch_all(
+        "SELECT file_id, statement_seq, statement_kind, keyword FROM wf_statements"
+        " WHERE run_id = ? ORDER BY file_id, statement_seq",
+        (run_id,),
+    )
+    return tuple(StatementRow(int(row[0]), int(row[1]), row[2], row[3]) for row in rows)
+
+
+def _branches(db: MariaDBClient, run_id: str) -> tuple[Branch, ...]:
+    """Dialogue Manager '-IF' / '-GOTO' / '-REPEAT' commands, in statement order."""
+    rows = db.fetch_all(
+        "SELECT file_id, statement_seq, line_number, command, condition_text, target_label,"
+        " else_label FROM wf_dm_control_flow WHERE run_id = ? ORDER BY file_id, statement_seq",
+        (run_id,),
+    )
+    return tuple(
+        Branch(int(row[0]), int(row[1]), int(row[2]), *row[3:]) for row in rows
     )
 
 

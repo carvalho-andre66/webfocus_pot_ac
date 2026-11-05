@@ -10,7 +10,7 @@ from sample_procedures import ALL_PROCEDURES
 
 from webfocus_transpilation.assemble import assemble
 from webfocus_transpilation.lookml import comment_block, quote, render_field, render_project
-from webfocus_transpilation.lookml_model import LookmlField, Origin
+from webfocus_transpilation.lookml_model import LookmlField, LookmlView, Origin, Project
 
 
 @pytest.fixture(scope="module")
@@ -63,6 +63,27 @@ def test_comments_cannot_break_lookml() -> None:
     dimension = lkml.load(rendered)["views"][0]["dimensions"][0]
     assert dimension["label"] == 'A \\"quoted\\" @\\{label}'
     assert dimension["sql"].strip() == "${TABLE}.X"
+
+
+def test_an_extending_view_includes_its_parent_file() -> None:
+    """Looker resolves extends only from an include in the extending file, not the model."""
+    parent = LookmlView(name="sales", view_kind="physical", source_name="SALES", directory="views/physical")
+    child = LookmlView(
+        name="sales_ext", view_kind="extension", source_name="SALES", extends="sales", directory="views/rpt",
+    )
+    files = render_project(Project(model_name="demo", views=[parent, child]))
+    text = files["views/rpt/sales_ext.view.lkml"]
+    assert 'include: "/views/physical/sales.view.lkml"' in text
+    parsed = lkml.load(text)
+    assert parsed["includes"] == ["/views/physical/sales.view.lkml"]
+    assert "include:" not in files["views/physical/sales.view.lkml"]
+
+
+def test_extending_a_missing_view_fails() -> None:
+    """A dangling extends is a generator error, not a file Looker will reject later."""
+    child = LookmlView(name="sales_ext", view_kind="extension", source_name="SALES", extends="sales")
+    with pytest.raises(ValueError, match="not in this project"):
+        render_project(Project(model_name="demo", views=[child]))
 
 
 def test_quote_escapes_lookml_specials() -> None:

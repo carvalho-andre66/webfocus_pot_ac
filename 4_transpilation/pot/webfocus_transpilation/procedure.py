@@ -1,10 +1,13 @@
 """One report procedure as a timeline: what each name, DEFINE, and JOIN means at a statement.
 
-WebFOCUS state inside a procedure is positional. A HOLD file named X is whatever the latest
-earlier request wrote as X; 'DEFINE FILE X' replaces the earlier DEFINE on X unless it was
-cleared; a JOIN applies to requests whose host is the file named in 'JOIN ... IN host' until a
-'JOIN CLEAR' removes it. HOLD files are session scoped, so only producers earlier in the same
-file count; any other name is a table on the reporting server.
+WebFOCUS state inside a procedure is positional, and positional means reachable, not just
+earlier: a HOLD file named X is whatever the latest request on a path from the top of the file
+wrote as X; 'DEFINE FILE X' replaces the earlier DEFINE on X unless it was cleared; a JOIN applies
+to requests whose host is the file named in 'JOIN ... IN host' until a 'JOIN CLEAR' removes it.
+Dialogue Manager '-IF' / '-GOTO' branches can keep a later request from ever seeing an earlier
+HOLD, DEFINE, JOIN, or SET that sits on a different branch ('control_flow.py' decides which
+statements are reachable). HOLD files are session scoped, so only reachable producers in the
+same file count; any other name is a table on the reporting server.
 """
 
 from __future__ import annotations
@@ -13,8 +16,10 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 
+from webfocus_transpilation.control_flow import ProcedureFlow, build_flow
 from webfocus_transpilation.models import (
     Assignment,
+    Branch,
     Field,
     Filter,
     Join,
@@ -22,6 +27,7 @@ from webfocus_transpilation.models import (
     Request,
     Setting,
     SourceFile,
+    StatementRow,
 )
 from webfocus_transpilation.naming import file_stem
 from webfocus_transpilation.variables import VariableTable
@@ -58,6 +64,8 @@ class Procedure:
         assignments: list[Assignment],
         settings: list[Setting],
         links: list[Link],
+        statements: list[StatementRow],
+        branches: list[Branch],
     ) -> None:
         """Index the rows of one file by request and statement order."""
         self.file = file
@@ -76,6 +84,11 @@ class Procedure:
         self.variables = VariableTable(assignments)
         self.settings = sorted(settings, key=lambda item: item.statement_seq)
         self.links = list(links)
+        self.flow: ProcedureFlow = build_flow(file.file_id, statements, branches)
+
+    def reachable_before(self, statement_seq: int) -> frozenset[int]:
+        """Statements that can execute, from the top of the file, on a path to 'statement_seq'."""
+        return self.flow.reachable_predecessors(statement_seq)
 
     def hold_name(self, request: Request) -> str | None:
         """The upper-cased HOLD name when the request writes a valid one, else None."""
@@ -104,10 +117,11 @@ class Procedure:
         if not cleaned or not HOLD_NAME.match(cleaned):
             return Relation("unresolved", cleaned, None, f"file name {cleaned!r} is not a plain identifier")
         upper = cleaned.upper()
+        reachable = self.reachable_before(before_statement)
         producer = None
         for request in self.requests:
-            if request.statement_seq >= before_statement:
-                break
+            if request.statement_seq not in reachable:
+                continue
             if self.hold_name(request) == upper:
                 producer = request
         if producer is not None:
@@ -121,10 +135,11 @@ class Procedure:
     def defines_for(self, name: str, before_statement: int) -> list[Field]:
         """DEFINE fields in effect for 'name': the latest 'DEFINE FILE name' block, unless cleared."""
         upper = name.upper()
+        reachable = self.reachable_before(before_statement)
         active: list[Field] = []
         for request in self.requests:
-            if request.statement_seq >= before_statement:
-                break
+            if request.statement_seq not in reachable:
+                continue
             if request.request_kind != "define_file":
                 continue
             if (request.source_resolved or request.source_raw or "").upper() != upper:
@@ -137,11 +152,12 @@ class Procedure:
 
     def joins_for(self, host: str, before_statement: int) -> list[Join]:
         """Joins in effect at 'before_statement' whose host is 'host', in definition order."""
+        reachable = self.reachable_before(before_statement)
         live: dict[str, Join] = {}
         order: list[str] = []
         for join in self.joins:
-            if join.statement_seq >= before_statement:
-                break
+            if join.statement_seq not in reachable:
+                continue
             if join.join_action == "clear":
                 target = (join.clear_target or "*").upper()
                 if target == "*":
@@ -161,10 +177,11 @@ class Procedure:
 
     def setting(self, name: str, before_statement: int) -> str | None:
         """The value of 'SET name' in effect at 'before_statement', upper-cased."""
+        reachable = self.reachable_before(before_statement)
         value = None
         for row in self.settings:
-            if row.statement_seq >= before_statement:
-                break
+            if row.statement_seq not in reachable:
+                continue
             if row.name == name.upper():
                 value = (row.value_text or "").strip().upper()
         return value

@@ -6,8 +6,15 @@ only be translated when its value is known or is supplied by the user:
 - 'constant': every '-SET' (and any '-DEFAULT') assigns the same literal. Substituted as text.
 - 'parameter': only '-DEFAULT' or '-DEFAULTH' with one literal. Becomes a LookML parameter.
 - 'computed': a '-SET' with an expression, a '-READ', or more than one distinct literal.
-- 'undeclared': never assigned in this file (a missing '-INCLUDE' or a global set elsewhere).
+- 'undeclared': never assigned anywhere in this file (a missing '-INCLUDE', or a global set
+  elsewhere).
 - 'system': a WebFOCUS system variable such as '&YYMD' or '&FOCFEXNAME'.
+
+A variable set differently on different Dialogue Manager branches looks, over the whole file,
+like it disagrees with itself. 'classify_reachable' narrows the question to one statement: given
+only the assignments that can execute on a path reaching it (from 'control_flow.py'), does the
+variable still resolve to one literal there? That turns many file-wide 'computed' variables back
+into per-request constants or parameters, the way WebFOCUS actually resolves them.
 """
 
 from __future__ import annotations
@@ -15,6 +22,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Protocol
 
 from webfocus_transpilation.models import Assignment
 
@@ -85,19 +93,45 @@ class VariableTable:
         self._cache: dict[str, Variable] = {}
 
     def classify(self, name: str) -> Variable:
-        """Return the classification of '&NAME' or '&&NAME'."""
+        """Return the classification of '&NAME' or '&&NAME' from every assignment in the file."""
         key = name.upper()
         if key not in self._cache:
             self._cache[key] = self._classify(key)
         return self._cache[key]
 
-    def _classify(self, key: str) -> Variable:
-        """Apply the rules in the module docstring."""
+    def classify_reachable(self, name: str, reachable: frozenset[int]) -> Variable:
+        """Classify '&NAME' using only assignments that can execute on a path to one statement.
+
+        'reachable' is 'ProcedureFlow.reachable_predecessors(statement_seq)' for the statement
+        whose text is being translated. A variable the file assigns only on branches that cannot
+        reach this statement is reported as such, distinct from never being assigned at all
+        (which usually means a missing '-INCLUDE').
+        """
+        key = name.upper()
         if key in SYSTEM_VARIABLES:
             return Variable(key, "system", None, "WebFOCUS system variable")
         assignments = self._by_name.get(key, [])
         if not assignments:
             return Variable(key, "undeclared", None, "never assigned in this file")
+        local = [item for item in assignments if item.statement_seq in reachable]
+        if not local:
+            return Variable(
+                key, "computed", None,
+                "assigned elsewhere in this file, but not on any path that reaches this statement",
+            )
+        return self._classify_assignments(key, local)
+
+    def _classify(self, key: str) -> Variable:
+        """Apply the rules in the module docstring using every assignment in the file."""
+        if key in SYSTEM_VARIABLES:
+            return Variable(key, "system", None, "WebFOCUS system variable")
+        assignments = self._by_name.get(key, [])
+        if not assignments:
+            return Variable(key, "undeclared", None, "never assigned in this file")
+        return self._classify_assignments(key, assignments)
+
+    def _classify_assignments(self, key: str, assignments: list[Assignment]) -> Variable:
+        """Classify 'key' from exactly these assignments, already known to be non-empty."""
         if any(item.command == "READ" for item in assignments):
             return Variable(key, "computed", None, "assigned by -READ")
         sets = [item for item in assignments if item.command == "SET"]
@@ -118,3 +152,28 @@ class VariableTable:
         if sets:
             return Variable(key, "constant", value, "every -SET assigns the same literal")
         return Variable(key, "parameter", value, "declared with -DEFAULT")
+
+
+class VariableLookup(Protocol):
+    """Anything that can classify a Dialogue Manager variable name by text substitution.
+
+    'VariableTable' (whole file) and 'ScopedVariables' (one statement's reachable assignments)
+    both satisfy this structurally, so 'expressions.prepare' does not need to know which one it
+    has.
+    """
+
+    def classify(self, name: str) -> Variable:
+        """Return the classification of '&NAME' or '&&NAME'."""
+        ...
+
+
+@dataclass(frozen=True)
+class ScopedVariables:
+    """A 'VariableTable' view restricted to the assignments reachable at one statement."""
+
+    table: VariableTable
+    reachable: frozenset[int]
+
+    def classify(self, name: str) -> Variable:
+        """Delegate to 'VariableTable.classify_reachable' with this view's reachable set."""
+        return self.table.classify_reachable(name, self.reachable)

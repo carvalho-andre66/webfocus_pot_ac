@@ -20,6 +20,26 @@ uv run python 4_transpilation/pot/main.py --run-id 20261104T191114Z
 
 Each run applies `ddl/*.sql`, compiles the project, and parses every generated file with `lkml`. If any file fails to parse, the run stops with ❌ before anything is written. Otherwise it clears that run's `wf_xpl_*` rows and writes them again, then replaces `output/lookml/`.
 
+## Deploy to Looker
+
+Upload `output/lookml/` to a Looker project and print a link to the project file browser:
+
+```bash
+uv run python 4_transpilation/pot/deploy_lookml.py
+uv run python 4_transpilation/pot/deploy_lookml.py --project-id webfocus_pot
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--project-id` | `LOOKER_PROJECT_ID` or `webfocus_pot` | Looker project to create or reuse |
+| `--lookml-dir` | `4_transpilation/pot/output/lookml` | Directory of `.lkml` files to upload |
+
+Credentials and configuration come from `.env`: `LOOKERSDK_BASE_URL`, `LOOKERSDK_CLIENT_ID`, `LOOKERSDK_CLIENT_SECRET`, and `LOOKER_PROJECT_ID`. Set `LOOKERSDK_VERIFY_SSL=false` only for a certificate the machine should not verify.
+
+The script switches the API session to the dev workspace, creates the project when that id is missing, and writes each file. A later run replaces those same paths. Files already in the project that are not in the folder stay as they are.
+
+The link is for the Looker user that owns the API credentials. Open it with Development Mode on. The upload does not commit the branch or deploy it to production. The model still uses `@{webfocus_connection}` from `manifest.lkml`; point that constant at a connection that already exists on the instance.
+
 ## Output layout
 
 ```text
@@ -42,7 +62,7 @@ Every view, field, explore and join is preceded by a `#` comment block with thre
 |---|---|
 | Server table (no HOLD producer) | Physical view on `@{webfocus_dataset}.<TABLE>`, `extension: required`, shared by every report |
 | `ON TABLE HOLD AS X` read by a later request | Derived table view `<stem>__x` with BigQuery SQL. Its DEFINEs and JOINs are inlined, `WHERE` becomes WHERE, `WHERE TOTAL` becomes HAVING, `BY HIGHEST n` becomes `QUALIFY DENSE_RANK` |
-| Output request (any TABLE request without a usable `HOLD AS` name, such as `PCHOLD` or screen output) | One explore on an `_ext` view that extends the host view |
+| Output request (any TABLE request without a usable `HOLD AS` name, such as `PCHOLD` or screen output) | One explore on an `_ext` view that extends the host view. The extending file includes the host view file, which is what Looker requires to resolve `extends` |
 | `DEFINE FILE` field | Dimension in the `_ext` view (or a column of the derived table) |
 | `SUM`, `MAX.`, `MIN.`, `AVE.`, `CNT.DST.`, `CNT.` / `COUNT` | `sum`, `max`, `min`, `average`, `count_distinct`, and `COUNT(x)` measures. `SUM` or `MAX.` of a text field is `MAX(x)`, with a note. Prefixes that depend on record order (`FST.`, `LST.`, `PCT.`) are gaps |
 | `COMPUTE` | `type: number` measure over the aggregated values, as WebFOCUS computes after aggregation |
@@ -128,14 +148,15 @@ The procedures are compiled in two passes:
 
 WebFOCUS expressions are parsed with a Lark grammar (`wf_parser.py`) and emitted as sqlglot BigQuery ASTs (`expressions.py`). Every generated SQL string is re-parsed before it is used. The rules behind the translation:
 
-- HOLD names, DEFINE FILE and JOIN state are positional: `procedure.py` resolves each name to the latest earlier producer.
+- HOLD names, DEFINE FILE, JOIN, and SET state are positional and branch-aware: `procedure.py` resolves each name to the latest producer that can actually execute on some Dialogue Manager path reaching the request, using the control-flow graph in `control_flow.py`. A producer inside an `-IF ... GOTO` branch that the request's own path never takes is not a candidate, even if it sits earlier in the file.
 - `ASNAMES` and `HOLDLIST PRINTONLY` decide the columns of a HOLD.
 
 | Module | Role |
 |---|---|
 | `load.py` | Snapshot of one extraction run (and rationalization scope) |
-| `procedure.py` | Positional HOLD, DEFINE, JOIN, and SET state per procedure |
-| `variables.py` | Dialogue Manager variables: constants, parameters, unresolved |
+| `control_flow.py` | Dialogue Manager control-flow graph per procedure: which statements can reach which, from real `-GOTO` / `-IF ... THEN GOTO ... ELSE GOTO` / `-REPEAT` edges |
+| `procedure.py` | Branch-aware positional HOLD, DEFINE, JOIN, and SET state per procedure |
+| `variables.py` | Dialogue Manager variables: constants, parameters, unresolved, and per-statement (branch-scoped) classification |
 | `wf_parser.py`, `expressions.py` | WebFOCUS expression grammar and BigQuery emitter |
 | `formats.py`, `naming.py` | WebFOCUS formats to LookML types and value formats; snake_case names |
 | `evidence.py`, `columns.py` | Type evidence and the frozen column catalog |
@@ -150,6 +171,8 @@ WebFOCUS expressions are parsed with a Lark grammar (`wf_parser.py`) and emitted
 - No primary keys are declared, so Looker applies no symmetric aggregates. Measures on joined views aggregate the joined rows directly, as WebFOCUS sums cross-referenced fields.
 - Validation means the LookML parses and every reference resolves. Numeric parity against source data waits for the full build.
 - Styling is not translated. In the explore's comment block an `ON TABLE SET STYLE ... ENDSTYLE` block is folded to one line that gives the number of styling lines left out.
+- The control-flow graph is path-insensitive: it tracks which statements a `-GOTO` / `-IF ... THEN GOTO` can reach, not the runtime value of the variable being tested. Two independent `-IF &SAME_VAR EQ ...` checks later in the file are each treated as able to go either way, even though at run time the variable's value cannot have changed. A Dialogue Manager block that falls through its own label (no unconditional `-GOTO` past it) therefore still counts as reachable to a later, nominally separate branch, and a JOIN or HOLD inside it stays a candidate there too. This affects a few real `rpt_usto_diy_pr_over_dtl.fex` requests (for example the `J202` join), where the branches are gated by re-testing `&VIEW_FINAL_FLAG` rather than by an unconditional exit. Closing that gap would need value-flow analysis across Dialogue Manager variables, not just a statement reachability graph, and is out of scope here.
+- A variable set to the same literal value by `-DEFAULT` / `-DEFAULTH` in sequence (no branch between them) is correctly still `computed`: those statements supply a fallback only used when the variable arrives unset from the caller, so its real value is a run-time input, not something static analysis of this file can resolve.
 
 ## Tests
 

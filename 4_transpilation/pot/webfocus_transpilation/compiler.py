@@ -68,7 +68,7 @@ from webfocus_transpilation.scope import (
     Slot,
     derived_column,
 )
-from webfocus_transpilation.variables import Variable
+from webfocus_transpilation.variables import ScopedVariables, Variable, VariableLookup
 from webfocus_transpilation.wf_parser import (
     FieldRef,
     Node,
@@ -124,6 +124,10 @@ class ProcedureCompiler:
     def using(self, origin: Origin, text: str) -> None:
         """Set the origin credited for columns read from here on."""
         self._usage = (origin, text)
+
+    def _variables_at(self, statement_seq: int) -> VariableLookup:
+        """Dialogue Manager variables as WebFOCUS would resolve them at 'statement_seq'."""
+        return ScopedVariables(self.procedure.variables, self.procedure.reachable_before(statement_seq))
 
     # ---- scopes
 
@@ -275,7 +279,7 @@ class ProcedureCompiler:
         assigned_format: FormatInfo | None = None,
     ) -> Compiled:
         """Prepare, parse, gather evidence (first pass), and emit one expression."""
-        prepared = prepare(text, self.procedure.variables)
+        prepared = prepare(text, self._variables_at(scope.request.statement_seq))
         try:
             node = parse_expression(prepared.text)
         except ParseFailure as error:
@@ -347,7 +351,7 @@ class ProcedureCompiler:
         if identity is not None:
             self.catalog.add_evidence(identity, type_evidence.Evidence(NUMBER, 1, "aggregated with SUM"))
 
-    def field_name(self, row: Field) -> tuple[str, FormatInfo | None, list[str], str | None]:
+    def field_name(self, row: Field, scope: Scope) -> tuple[str, FormatInfo | None, list[str], str | None]:
         """Name, format, notes, and the variable that makes the name dynamic (or None)."""
         name = row.field_name.strip()
         fmt = parse_format(row.field_format)
@@ -364,7 +368,7 @@ class ProcedureCompiler:
                     f"{', '.join(item.raw for item in candidates)}; used {candidates[0].raw} (inferred)"
                 )
                 return match.group("name").upper(), candidates[0], notes, None
-        prepared = prepare(name, self.procedure.variables)
+        prepared = prepare(name, self._variables_at(scope.request.statement_seq))
         if not prepared.placeholders:
             return prepared.text.upper(), fmt, notes, None
         variable = next(iter(prepared.placeholders.values()))
@@ -384,13 +388,13 @@ class ProcedureCompiler:
             return []
         return [item for item in formats if item is not None]
 
-    def label(self, row: Field, default: str) -> tuple[str, str | None]:
+    def label(self, row: Field, scope: Scope, default: str) -> tuple[str, str | None]:
         """Label from the column title, with a note when the title is set at run time."""
         alias = (row.alias or "").strip()
         if not alias:
             return default, None
         if "&" in alias:
-            prepared = prepare(alias, self.procedure.variables)
+            prepared = prepare(alias, self._variables_at(scope.request.statement_seq))
             if prepared.placeholders:
                 return default, f"title {alias} is set at run time"
             alias = prepared.text
@@ -515,11 +519,12 @@ class ProcedureCompiler:
             self.using(row_origin, row.raw_text)
             self.evidence_for_reformat(scope, row)
             self.evidence_for_sum(scope, row)
-            name, fmt, notes, dynamic = self.field_name(row)
+            name, fmt, notes, dynamic = self.field_name(row, scope)
             held = not (holdlist == "PRINTONLY" and is_noprint(row)) and row.role != "unparsed"
             held_name = field_ref(name).name
             if asnames and row.alias:
-                alias = label_text(prepare(row.alias, procedure.variables).text) or ""
+                alias_variables = self._variables_at(producer.statement_seq)
+                alias = label_text(prepare(row.alias, alias_variables).text) or ""
                 if HOLD_NAME.match(alias.replace(" ", "_")) and "&" not in row.alias:
                     held_name = alias.upper()
             status, typed, kind = "translated", None, UNKNOWN
@@ -791,7 +796,7 @@ class ProcedureCompiler:
 
     def _verb_sql(self, scope: Scope, row: Field) -> Typed:
         """Aggregate SQL of a verb field such as 'SUM X', 'SUM MAX.X', or 'COUNT X'."""
-        ref = field_ref(self.field_name(row)[0])
+        ref = field_ref(self.field_name(row, scope)[0])
         value = self.row_value(scope, self.bind(scope, ref.name, allow_computes=False))
         if (row.verb or "").upper() == "COUNT":
             return Typed(exp.Count(this=value.node), NUMBER)

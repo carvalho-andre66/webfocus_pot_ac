@@ -14,6 +14,7 @@ from webfocus_extraction.master.master_parser import parse_master
 from webfocus_extraction.staging.writer import analysis_rows, master_rows, statement_rows
 from webfocus_transpilation.models import (
     Assignment,
+    Branch,
     Field,
     Filter,
     Join,
@@ -23,6 +24,7 @@ from webfocus_transpilation.models import (
     Setting,
     Snapshot,
     SourceFile,
+    StatementRow,
 )
 
 RUN_ID = "TEST_RUN"
@@ -43,6 +45,8 @@ def snapshot_from_fex(procedures: dict[str, str], out_of_scope: frozenset[str] =
     assignments: list[Assignment] = []
     settings: list[Setting] = []
     links: list[Link] = []
+    statements: list[StatementRow] = []
+    branches: list[Branch] = []
     in_scope: set[int] = set()
     for file_id, (relative_path, text) in enumerate(procedures.items(), start=1):
         root = "EDA" if relative_path.startswith("EDA/") else "WFC"
@@ -50,10 +54,16 @@ def snapshot_from_fex(procedures: dict[str, str], out_of_scope: frozenset[str] =
         if relative_path not in out_of_scope:
             in_scope.add(file_id)
         analysis = analyze_fex(dedent(text).strip() + "\n")
-        statement_text = {
-            row[2]: row[8] for row in statement_rows(RUN_ID, file_id, analysis.parsed)
-        }
+        file_statement_rows = statement_rows(RUN_ID, file_id, analysis.parsed)
+        statement_text = {row[2]: row[8] for row in file_statement_rows}
+        statements += [
+            StatementRow(row[1], row[2], row[4], row[5]) for row in file_statement_rows
+        ]
         rows = analysis_rows(RUN_ID, file_id, analysis)
+        branches += [
+            Branch(row[1], row[3], row[4], row[5], row[6], row[7], row[8])
+            for row in rows["wf_dm_control_flow"]
+        ]
         requests += [
             Request(
                 row[1], row[2], row[3], row[4], row[5], row[6] or "", row[7] or "", row[8] or "",
@@ -102,4 +112,6 @@ def snapshot_from_fex(procedures: dict[str, str], out_of_scope: frozenset[str] =
         settings=tuple(settings),
         links=tuple(links),
         master_fields=tuple(master_fields),
+        statements=tuple(statements),
+        branches=tuple(branches),
     )

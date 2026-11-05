@@ -180,7 +180,7 @@ class ExploreBuild:
         compiler.using(origin, row.raw_text)
         compiler.evidence_for_reformat(scope, row)
         compiler.evidence_for_sum(scope, row)
-        name, fmt, notes, dynamic = compiler.field_name(row)
+        name, fmt, notes, dynamic = compiler.field_name(row, scope)
         if dynamic:
             compiler.gap("dynamic_field_name", "warning", f"{self.explore_name}.{name}",
                          f"field name is built from variable {dynamic}", origin, row.raw_text)
@@ -236,7 +236,7 @@ class ExploreBuild:
         has_title = bool((row.alias or "").strip())
         if not has_title and not (fmt and fmt.value_format):
             return
-        label, _ = compiler.label(row, name)
+        label, _ = compiler.label(row, scope, name)
         if binding.kind == "define":
             _, dim, _ = self.define_dim(binding.slot, binding.define_index or 0)
             target = self.views[binding.slot].view.field_named(dim)
@@ -379,11 +379,11 @@ class ExploreBuild:
             return self._compute_fields[row.field_seq]
         compiler, scope = self.compiler, self.scope
         slot_view = self.views[0]
-        name_text, fmt, notes, _ = compiler.field_name(row)
+        name_text, fmt, notes, _ = compiler.field_name(row, scope)
         name = slot_view.names.claim(snake(name_text), "compute")
         self._compute_fields[row.field_seq] = (slot_view.view.name, name, target_kind(fmt))
         origin = field_origin(compiler.procedure, scope.request, row)
-        label, label_note = compiler.label(row, name_text)
+        label, label_note = compiler.label(row, scope, name_text)
         lookml_field = LookmlField(
             kind="dimension", name=name, lookml_type="string", sql=None, label=label,
             value_format=fmt.value_format if fmt else None, hidden=is_noprint(row), origin=origin,
@@ -494,7 +494,7 @@ class ExploreBuild:
         self._verbs_done.add(row.field_seq)
         compiler, scope = self.compiler, self.scope
         origin = field_origin(compiler.procedure, scope.request, row)
-        name, fmt, notes, _ = compiler.field_name(row)
+        name, fmt, notes, _ = compiler.field_name(row, scope)
         ref = field_ref(name)
         op = ref.prefix or ("CNT" if (row.verb or "").upper() == "COUNT" else "SUM")
         key = None
@@ -508,7 +508,7 @@ class ExploreBuild:
                              str(error), origin, row.raw_text)
                 return
         lookml_field = self._measures[key]
-        label, label_note = compiler.label(row, lookml_field.label or name)
+        label, label_note = compiler.label(row, scope, lookml_field.label or name)
         lookml_field.label = label
         if fmt is not None and fmt.value_format and op not in ("CNT", "CNT.DST", "DST"):
             lookml_field.value_format = fmt.value_format
@@ -523,11 +523,11 @@ class ExploreBuild:
             view_name, name, kind = self._compute_fields[row.field_seq]
             return self.ref(view_name, name, kind, None)
         slot_view = self.views[0]
-        name_text, fmt, notes, _ = compiler.field_name(row)
+        name_text, fmt, notes, _ = compiler.field_name(row, scope)
         name = slot_view.names.claim(snake(name_text), "compute")
         self._compute_fields[row.field_seq] = (slot_view.view.name, name, target_kind(fmt) or NUMBER)
         origin = field_origin(compiler.procedure, scope.request, row)
-        label, label_note = compiler.label(row, name_text)
+        label, label_note = compiler.label(row, scope, name_text)
         lookml_field = LookmlField(
             kind="measure", name=name, lookml_type="number", sql=None, label=label,
             value_format=fmt.value_format if fmt else None, hidden=is_noprint(row), origin=origin,
@@ -689,7 +689,7 @@ class LookerMeasure:
         verb_row = scope.verb_row(binding.name)
         if verb_row is not None:
             build.verb_measure(verb_row)
-            verb_ref = field_ref(compiler.field_name(verb_row)[0])
+            verb_ref = field_ref(compiler.field_name(verb_row, scope)[0])
             op = verb_ref.prefix or ("CNT" if (verb_row.verb or "").upper() == "COUNT" else "SUM")
             return build.measure(binding, op, hidden=is_noprint(verb_row))
         if binding.name in scope.by_names():

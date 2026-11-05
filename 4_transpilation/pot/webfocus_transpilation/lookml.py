@@ -74,9 +74,25 @@ def render_field(lookml_field: LookmlField, indent: str) -> list[str]:
     return lines
 
 
-def render_view(view: LookmlView) -> str:
-    """The text of one '.view.lkml' file."""
+def view_file(view: LookmlView) -> str:
+    """Project-relative path of a view file, such as 'views/physical/sales.view.lkml'."""
+    return f"{view.directory}/{view.name}.view.lkml"
+
+
+def render_view(view: LookmlView, *, include_path: str | None = None) -> str:
+    """The text of one '.view.lkml' file.
+
+    'include_path' is the project-relative file of the view this one extends. Looker only
+    resolves 'extends' when that file is included from the extending file itself.
+    """
+    if view.extends and not include_path:
+        raise ValueError(f"View '{view.name}' extends '{view.extends}' but no include path was given.")
     lines = comment_block(view.origin, view.webfocus_text, view.notes, "")
+    if include_path:
+        if lines:
+            lines.append("")
+        lines.append(f'include: "/{include_path}"')
+        lines.append("")
     lines.append(f"view: {view.name} {{")
     if view.extends:
         lines.append(f"{INDENT}extends: [{view.extends}]")
@@ -172,5 +188,13 @@ def render_project(project: Project, connection: str = DEFAULT_CONNECTION,
         f"{project.model_name}.model.lkml": render_model(project),
     }
     for view in project.views:
-        files[f"{view.directory}/{view.name}.view.lkml"] = render_view(view)
+        include_path = None
+        if view.extends:
+            parent = project.view_named(view.extends)
+            if parent is None:
+                raise ValueError(
+                    f"View '{view.name}' extends '{view.extends}', which is not in this project."
+                )
+            include_path = view_file(parent)
+        files[view_file(view)] = render_view(view, include_path=include_path)
     return files

@@ -94,6 +94,8 @@ def report_procedures(snapshot: Snapshot) -> list[Procedure]:
             [row for row in snapshot.assignments if row.file_id == file_id],
             [row for row in snapshot.settings if row.file_id == file_id],
             [row for row in snapshot.links if row.file_id == file_id],
+            [row for row in snapshot.statements if row.file_id == file_id],
+            [row for row in snapshot.branches if row.file_id == file_id],
         ))
     return procedures
 

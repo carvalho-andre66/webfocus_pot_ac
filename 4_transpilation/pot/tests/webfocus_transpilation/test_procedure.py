@@ -96,6 +96,56 @@ def test_settings_and_aggregation() -> None:
     assert proc.is_aggregate(first) and not proc.is_aggregate(output)
 
 
+BRANCHED = """
+-SET &LVL = 1;
+-IF &LVL EQ 1 THEN GOTO ONE ELSE GOTO TWO;
+-ONE;
+DEFINE FILE SALES
+ONE_FLAG/A1 = 'X';
+END
+JOIN REGION IN SALES TO REGION IN REGIONS AS JONE
+TABLE FILE SALES
+SUM AMOUNT
+ON TABLE HOLD AS ONE_HOLD
+END
+-GOTO END_REPORT;
+-TWO;
+JOIN STORE_ID IN SALES TO STORE_ID IN STORES AS JTWO
+TABLE FILE SALES
+SUM AMOUNT
+ON TABLE HOLD AS TWO_HOLD
+END
+-END_REPORT;
+"""
+
+
+def branched_procedure() -> Procedure:
+    """The single report procedure of BRANCHED."""
+    procedures = report_procedures(snapshot_from_fex({"WFC/Repository/t/rpt_branched.fex": BRANCHED}))
+    assert len(procedures) == 1
+    return procedures[0]
+
+
+def test_a_join_declared_on_one_branch_does_not_apply_to_the_other() -> None:
+    """JONE, declared only on the ONE branch, is not live for a request reached only via TWO."""
+    proc = branched_procedure()
+    one_request, two_request = (
+        request for request in proc.requests if request.request_kind == "table"
+    )
+    assert [join.join_name for join in proc.joins_for("SALES", one_request.statement_seq)] == ["JONE"]
+    assert [join.join_name for join in proc.joins_for("SALES", two_request.statement_seq)] == ["JTWO"]
+
+
+def test_a_define_declared_on_one_branch_does_not_apply_to_the_other() -> None:
+    """A DEFINE FILE on the ONE branch is not visible to a request reached only via TWO."""
+    proc = branched_procedure()
+    one_request, two_request = (
+        request for request in proc.requests if request.request_kind == "table"
+    )
+    assert [row.field_name for row in proc.defines_for("SALES", one_request.statement_seq)] == ["ONE_FLAG"]
+    assert proc.defines_for("SALES", two_request.statement_seq) == []
+
+
 def test_only_in_scope_wfc_procedures_are_reports() -> None:
     """EDASERVE procedures and files outside rationalization scope are not compiled."""
     snapshot = snapshot_from_fex(

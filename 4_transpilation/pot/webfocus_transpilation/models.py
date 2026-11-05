@@ -104,6 +104,32 @@ class Assignment:
 
 
 @dataclass(frozen=True)
+class StatementRow:
+    """One statement from 'wf_statements': just enough to build a control-flow graph.
+
+    'statement_kind' is 'dm_label' for a '-LABEL;' line, whose 'keyword' is the label name.
+    """
+
+    file_id: int
+    statement_seq: int
+    statement_kind: str
+    keyword: str | None
+
+
+@dataclass(frozen=True)
+class Branch:
+    """One Dialogue Manager '-IF' / '-GOTO' / '-REPEAT' from 'wf_dm_control_flow'."""
+
+    file_id: int
+    statement_seq: int
+    line_number: int
+    command: str
+    condition_text: str | None
+    target_label: str | None
+    else_label: str | None
+
+
+@dataclass(frozen=True)
 class Setting:
     """One 'SET name = value' from 'wf_environment_commands'."""
 
@@ -160,3 +186,5 @@ class Snapshot:
     settings: tuple[Setting, ...]
     links: tuple[Link, ...]
     master_fields: tuple[MasterField, ...] = ()
+    statements: tuple[StatementRow, ...] = ()
+    branches: tuple[Branch, ...] = ()

@@ -28,7 +28,7 @@ from typing import Protocol
 from sqlglot import exp
 
 from webfocus_transpilation.formats import FormatInfo
-from webfocus_transpilation.variables import VARIABLE_PATTERN, Variable, VariableTable
+from webfocus_transpilation.variables import VARIABLE_PATTERN, Variable, VariableLookup
 from webfocus_transpilation.wf_parser import (
     Between,
     Binary,
@@ -83,7 +83,7 @@ class Prepared:
     constants: dict[str, str] = field(default_factory=dict)
 
 
-def prepare(text: str, variables: VariableTable) -> Prepared:
+def prepare(text: str, variables: VariableLookup) -> Prepared:
     """Substitute constants and replace other variables with placeholder names."""
     prepared = Prepared(text="")
     by_name: dict[str, str] = {}
